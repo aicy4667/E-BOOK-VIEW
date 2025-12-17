@@ -8,11 +8,18 @@
   <!-- PageFlip (StPageFlip) -->
   <!-- ✅ 內網穩定版：改用本機/同網域靜態檔案，不走 CDN -->
   <!-- 請把 page-flip.browser.min.js 放到 /vendor/page-flip/  -->
-  <script src="./vendor/page-flip/page-flip.browser.min.js"></script>
+  <!-- 你目前 GitHub 裡的檔名是 page-flip.browser.js（非 .min.js），所以這裡要對齊檔名 -->
+  <script src="./vendor/page-flip/page-flip.browser.js"></script>
 
   <!-- PDF.js -->
-  <!-- 請把 pdf.min.js 與 pdf.worker.min.js 放到 /vendor/pdfjs/ -->
-  <script src="./vendor/pdfjs/pdf.min.js"></script>
+  <!-- 你目前 GitHub 裡放的是 ESM 版 PDF.js（pdf.mjs / pdf.worker.mjs），所以用 module 方式載入並掛到 window.pdfjsLib -->
+  <script type="module">
+    import * as pdfjsLib from './vendor/pdfjs/pdf.mjs';
+    // 讓後面的非 module 程式也能用 pdfjsLib
+    window.pdfjsLib = pdfjsLib;
+    // 指定 worker（對齊你 repo 裡的 pdf.worker.mjs）
+    pdfjsLib.GlobalWorkerOptions.workerSrc = './vendor/pdfjs/pdf.worker.mjs';
+  </script>
 
   <style>
     :root{
@@ -257,8 +264,10 @@
     let currentDocTitle = null;
 
     // ========= PDF.js worker =========
-    if (window.pdfjsLib) {
-      pdfjsLib.GlobalWorkerOptions.workerSrc = './vendor/pdfjs/pdf.worker.min.js';
+    // ESM 版 PDF.js 已在上方 <script type="module"> 設定過 workerSrc。
+    // 這裡保留保險：若有人改回 legacy 版，也能在此指定。
+    if (window.pdfjsLib && window.pdfjsLib.GlobalWorkerOptions) {
+      window.pdfjsLib.GlobalWorkerOptions.workerSrc = window.pdfjsLib.GlobalWorkerOptions.workerSrc || './vendor/pdfjs/pdf.worker.mjs';
     }
 
     function setLoading(msg){
