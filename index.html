@@ -1,0 +1,772 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>電子書翻頁效果（PDF/圖片上傳＋目錄/縮圖/跳頁/書籤＋全螢幕）</title>
+
+  <!-- PageFlip (StPageFlip) -->
+  <!-- ✅ 內網穩定版：改用本機/同網域靜態檔案，不走 CDN -->
+  <!-- 請把 page-flip.browser.min.js 放到 /vendor/page-flip/  -->
+  <script src="./vendor/page-flip/page-flip.browser.min.js"></script>
+
+  <!-- PDF.js -->
+  <!-- 請把 pdf.min.js 與 pdf.worker.min.js 放到 /vendor/pdfjs/ -->
+  <script src="./vendor/pdfjs/pdf.min.js"></script>
+
+  <style>
+    :root{
+      --bg:#0b0f19; --panel:#0f172a; --panel2:#111827; --muted:#9ca3af; --text:#e5e7eb;
+      --border: rgba(255,255,255,.10);
+      --accent:#7c3aed;
+      --danger:#ef4444;
+    }
+    *{ box-sizing:border-box; }
+    body{ margin:0; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", sans-serif;
+      background: radial-gradient(1200px 700px at 20% 0%, rgba(124,58,237,.18), transparent 60%),
+                  radial-gradient(900px 700px at 90% 20%, rgba(59,130,246,.14), transparent 55%),
+                  linear-gradient(180deg,#0b0f19,#020617);
+      color:var(--text);
+    }
+
+    header{ position:sticky; top:0; z-index:30; backdrop-filter: blur(10px);
+      background: rgba(2,6,23,.72); border-bottom:1px solid rgba(255,255,255,.08);
+    }
+    .wrap{ max-width:1400px; margin:0 auto; padding:12px 14px; }
+    .row{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+    .row.between{ justify-content:space-between; }
+
+    .brand{ display:flex; align-items:center; gap:10px; font-weight:800; letter-spacing:.2px; }
+    .pill{ font-size:12px; color:var(--muted); border:1px solid rgba(255,255,255,.12); padding:3px 8px; border-radius:999px; }
+
+    .controls{ display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+    .btn{ border:1px solid rgba(255,255,255,.14); background: rgba(17,24,39,.6); color:var(--text);
+      padding:10px 12px; border-radius:12px; cursor:pointer; transition:.15s; font-weight:700;
+    }
+    .btn:hover{ border-color: rgba(124,58,237,.55); box-shadow: 0 0 0 3px rgba(124,58,237,.12); }
+    .btn.primary{ background: rgba(124,58,237,.18); border-color: rgba(124,58,237,.55); }
+    .btn.danger{ background: rgba(239,68,68,.12); border-color: rgba(239,68,68,.45); }
+    .btn.ghost{ background: transparent; }
+
+    .hint{ color:var(--muted); font-size:12px; margin-top:8px; line-height:1.4; }
+
+    main{ padding:14px 14px 28px; }
+    .layout{ max-width:1400px; margin:0 auto; display:grid; grid-template-columns: 320px 1fr; gap:14px; }
+
+    .card{ border:1px solid var(--border); background: rgba(17,24,39,.35); border-radius:18px; overflow:hidden; box-shadow: 0 10px 30px rgba(0,0,0,.35); }
+    .card-top{ padding:12px 14px; display:flex; align-items:center; justify-content:space-between; border-bottom:1px solid rgba(255,255,255,.08); }
+    .status{ font-size:12px; color:var(--muted); }
+
+    /* Sidebar */
+    .sidebar{ display:flex; flex-direction:column; min-height: min(78vh, 860px); }
+    .tabs{ display:flex; gap:8px; padding:10px; border-bottom:1px solid rgba(255,255,255,.08); background: rgba(15,23,42,.55); }
+    .tab{ flex:1; text-align:center; font-size:12px; padding:9px 10px; border-radius:12px; cursor:pointer; border:1px solid rgba(255,255,255,.10); color:var(--muted); font-weight:800; }
+    .tab.active{ color:var(--text); border-color: rgba(124,58,237,.55); background: rgba(124,58,237,.12); }
+    .panel{ padding:10px; overflow:auto; height:100%; }
+
+    .mini-actions{ display:flex; gap:8px; align-items:center; padding:10px; border-top:1px solid rgba(255,255,255,.08); background: rgba(15,23,42,.35); }
+    .input{ flex:1; min-width: 90px; padding:10px 10px; border-radius:12px; border:1px solid rgba(255,255,255,.12);
+      background: rgba(2,6,23,.55); color:var(--text); outline:none; font-weight:700;
+    }
+    .input::placeholder{ color: rgba(156,163,175,.75); font-weight:600; }
+
+    /* Thumbnail list */
+    .thumbs{ display:grid; grid-template-columns: 1fr; gap:10px; }
+    .thumb{ display:flex; gap:10px; align-items:center; padding:10px; border-radius:14px; border:1px solid rgba(255,255,255,.10);
+      background: rgba(2,6,23,.35); cursor:pointer; transition: .12s;
+    }
+    .thumb:hover{ border-color: rgba(124,58,237,.45); box-shadow: 0 0 0 3px rgba(124,58,237,.10); }
+    .thumb.active{ border-color: rgba(124,58,237,.70); background: rgba(124,58,237,.10); }
+    .thumb img{ width:70px; height:90px; object-fit:cover; border-radius:10px; border:1px solid rgba(255,255,255,.10); background:#0b1220; }
+    .thumb .meta{ display:flex; flex-direction:column; gap:4px; }
+    .thumb .meta .t{ font-size:12px; font-weight:900; }
+    .thumb .meta .s{ font-size:11px; color:var(--muted); }
+
+    /* TOC list */
+    .toc, .bm{ display:flex; flex-direction:column; gap:8px; }
+    .toc a, .bm a{ text-decoration:none; color:var(--text); border:1px solid rgba(255,255,255,.10); background: rgba(2,6,23,.35);
+      padding:10px; border-radius:14px; display:block;
+    }
+    .toc a:hover, .bm a:hover{ border-color: rgba(124,58,237,.45); box-shadow: 0 0 0 3px rgba(124,58,237,.10); }
+    .toc .lvl{ color:var(--muted); font-size:11px; margin-top:4px; }
+
+    /* Stage */
+    #stageCard{ display:flex; flex-direction:column; }
+    #bookHost{ width:100%; height: min(78vh, 860px); display:flex; align-items:center; justify-content:center; padding:16px; }
+    #book{ width: min(1100px, 95vw); height: min(760px, 72vh); }
+
+    .empty{ padding:28px 18px; text-align:center; color:var(--muted); }
+    .empty strong{ color:var(--text); }
+
+    .nav{ display:flex; align-items:center; justify-content:center; gap:10px; padding:14px; border-top:1px solid rgba(255,255,255,.08); }
+    .counter{ font-variant-numeric: tabular-nums; color:var(--muted); font-size:12px; font-weight:800; }
+
+    /* fullscreen */
+    #fullscreenTarget:fullscreen{ background:#000; }
+    #fullscreenTarget:fullscreen #bookHost{ height: 100vh; padding: 18px; }
+    #fullscreenTarget:fullscreen #book{ height: min(92vh, 980px); width: min(1600px, 96vw); }
+
+    /* Mobile */
+    @media (max-width: 980px){
+      .layout{ grid-template-columns: 1fr; }
+      .sidebar{ min-height: auto; }
+      #bookHost{ height: 74vh; }
+      #book{ height: 66vh; }
+    }
+
+    /* loading */
+    .loading{ display:inline-flex; align-items:center; gap:8px; }
+    .dot{ width:8px; height:8px; border-radius:999px; background:rgba(124,58,237,.9); animation: pulse 1.1s infinite; }
+    .dot:nth-child(2){ animation-delay:.15s; opacity:.7; }
+    .dot:nth-child(3){ animation-delay:.30s; opacity:.5; }
+    @keyframes pulse{ 0%,100%{ transform: scale(.7); } 50%{ transform: scale(1.25); } }
+
+    /* page */
+    .page{ width:100%; height:100%; display:flex; align-items:center; justify-content:center; background:#0b1220; }
+    .page img{ width:100%; height:100%; object-fit: contain; background:#0b1220; }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="wrap">
+      <div class="row between">
+        <div class="brand">
+          <span>📖 電子書翻頁效果</span>
+          <span class="pill">PDF / 圖片上傳</span>
+          <span class="pill">縮圖 / 目錄 / 跳頁 / 書籤</span>
+          <span class="pill">Vercel-ready</span>
+        </div>
+        <div class="controls">
+          <input id="fileInput" type="file" accept="application/pdf,image/*" multiple style="display:none" />
+          <button class="btn ghost" id="toggleSidebarBtn">側欄</button>
+          <button class="btn primary" id="pickBtn">上傳 PDF / 圖片</button>
+          <button class="btn" id="fullscreenBtn">全螢幕</button>
+          <button class="btn danger" id="resetBtn">清除</button>
+        </div>
+      </div>
+      <div class="hint">
+        ✅ 內網穩定版（不依賴 CDN）：PageFlip + PDF.js 皆改成同網域靜態資源（/vendor）。上線到 Vercel / 內網 IIS / Nginx 都可。
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <div class="layout" id="fullscreenTarget">
+      <!-- Sidebar -->
+      <section class="card sidebar" id="sidebar">
+        <div class="card-top">
+          <div class="status" id="sidebarTitle">導覽</div>
+          <div class="status" id="docInfo">—</div>
+        </div>
+
+        <div class="tabs">
+          <div class="tab active" data-tab="thumbs">縮圖</div>
+          <div class="tab" data-tab="toc">目錄</div>
+          <div class="tab" data-tab="bm">書籤</div>
+        </div>
+
+        <div class="panel" id="panelThumbs">
+          <div class="empty" id="thumbEmpty">尚未載入內容</div>
+          <div class="thumbs" id="thumbList" style="display:none"></div>
+        </div>
+
+        <div class="panel" id="panelToc" style="display:none">
+          <div class="empty" id="tocEmpty">PDF 目錄需先載入 PDF</div>
+          <div class="toc" id="tocList" style="display:none"></div>
+        </div>
+
+        <div class="panel" id="panelBm" style="display:none">
+          <div class="empty" id="bmEmpty">先載入內容，再把重要頁面加成書籤</div>
+          <div class="bm" id="bmList" style="display:none"></div>
+        </div>
+
+        <div class="mini-actions">
+          <input class="input" id="jumpInput" placeholder="跳到頁碼（例如 12）" inputmode="numeric" />
+          <button class="btn" id="jumpBtn">跳頁</button>
+          <button class="btn" id="addBmBtn">＋書籤</button>
+        </div>
+      </section>
+
+      <!-- Stage -->
+      <section class="card" id="stageCard">
+        <div class="card-top">
+          <div class="status" id="status">尚未載入任何檔案</div>
+          <div class="status" id="tech">PageFlip + PDF.js</div>
+        </div>
+
+        <div id="bookHost">
+          <div id="book">
+            <div class="empty" id="emptyState">
+              <div style="font-size:18px; margin-bottom:8px;"><strong>把檔案丟進來，就能像電子書一樣翻頁</strong></div>
+              <div style="margin-bottom:10px;">支援：單一 PDF（自動拆頁）或多張圖片（依選取順序）。</div>
+              <div style="font-size:12px;">Tips：左右鍵翻頁；上方可進全螢幕；側欄可縮圖/目錄/書籤/跳頁。</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="nav">
+          <button class="btn" id="prevBtn">◀ 上一頁</button>
+          <span class="counter" id="counter">— / —</span>
+          <button class="btn" id="nextBtn">下一頁 ▶</button>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <script>
+    // ========= Helpers =========
+    const $ = (sel) => document.querySelector(sel);
+    const $$ = (sel) => Array.from(document.querySelectorAll(sel));
+
+    const statusEl = $('#status');
+    const counterEl = $('#counter');
+    const emptyState = $('#emptyState');
+
+    const sidebar = $('#sidebar');
+    const toggleSidebarBtn = $('#toggleSidebarBtn');
+
+    const fileInput = $('#fileInput');
+    const pickBtn = $('#pickBtn');
+    const resetBtn = $('#resetBtn');
+    const fullscreenBtn = $('#fullscreenBtn');
+    const fullscreenTarget = $('#fullscreenTarget');
+
+    const prevBtn = $('#prevBtn');
+    const nextBtn = $('#nextBtn');
+
+    const jumpInput = $('#jumpInput');
+    const jumpBtn = $('#jumpBtn');
+    const addBmBtn = $('#addBmBtn');
+
+    const docInfo = $('#docInfo');
+
+    const thumbEmpty = $('#thumbEmpty');
+    const thumbList = $('#thumbList');
+
+    const tocEmpty = $('#tocEmpty');
+    const tocList = $('#tocList');
+
+    const bmEmpty = $('#bmEmpty');
+    const bmList = $('#bmList');
+
+    // ========= State =========
+    let pageFlip = null;
+    let pageCount = 0;
+    let currentPage = 1;
+    let currentDocKey = null; // 用於 localStorage（書籤）
+    let currentDocTitle = null;
+
+    // ========= PDF.js worker =========
+    if (window.pdfjsLib) {
+      pdfjsLib.GlobalWorkerOptions.workerSrc = './vendor/pdfjs/pdf.worker.min.js';
+    }
+
+    function setLoading(msg){
+      statusEl.innerHTML = `<span class="loading"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span>${msg}</span></span>`;
+    }
+    function setStatus(msg){ statusEl.textContent = msg; }
+
+    function updateCounter(){
+      if (!pageCount) { counterEl.textContent = '— / —'; return; }
+      counterEl.textContent = `${currentPage} / ${pageCount}`;
+      jumpInput.placeholder = `跳到頁碼（1-${pageCount}）`;
+
+      // 更新縮圖 active
+      $$('.thumb').forEach(el => el.classList.remove('active'));
+      const active = document.querySelector(`.thumb[data-page="${currentPage}"]`);
+      if (active) active.classList.add('active');
+
+      // URL 同步（可分享）
+      const url = new URL(location.href);
+      url.searchParams.set('page', String(currentPage));
+      history.replaceState(null, '', url);
+    }
+
+    function destroyFlip(){
+      try{ pageFlip?.destroy?.(); } catch(e) {}
+      pageFlip = null;
+      pageCount = 0;
+      currentPage = 1;
+      counterEl.textContent = '— / —';
+      docInfo.textContent = '—';
+      currentDocKey = null;
+      currentDocTitle = null;
+      clearSidebarLists();
+    }
+
+    function clearSidebarLists(){
+      // thumbs
+      thumbList.innerHTML = '';
+      thumbList.style.display = 'none';
+      thumbEmpty.style.display = 'block';
+
+      // toc
+      tocList.innerHTML = '';
+      tocList.style.display = 'none';
+      tocEmpty.style.display = 'block';
+
+      // bookmarks
+      bmList.innerHTML = '';
+      bmList.style.display = 'none';
+      bmEmpty.style.display = 'block';
+    }
+
+    // ========= Tabs =========
+    function showTab(name){
+      $$('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === name));
+      $('#panelThumbs').style.display = (name === 'thumbs') ? 'block' : 'none';
+      $('#panelToc').style.display = (name === 'toc') ? 'block' : 'none';
+      $('#panelBm').style.display = (name === 'bm') ? 'block' : 'none';
+    }
+
+    $$('.tab').forEach(t => t.addEventListener('click', () => showTab(t.dataset.tab)));
+
+    toggleSidebarBtn.addEventListener('click', () => {
+      const hidden = sidebar.style.display === 'none';
+      sidebar.style.display = hidden ? 'flex' : 'none';
+      toggleSidebarBtn.textContent = hidden ? '側欄' : '側欄';
+      setTimeout(() => pageFlip?.update?.(), 120);
+    });
+
+    // ========= Build flip =========
+    function buildFlipFromImages(imageUrls, titleForKey){
+      destroyFlip();
+
+      const book = document.getElementById('book');
+      book.innerHTML = '';
+
+      const frag = document.createDocumentFragment();
+      imageUrls.forEach((url, idx) => {
+        const page = document.createElement('div');
+        page.className = 'page';
+        const img = document.createElement('img');
+        img.src = url;
+        img.alt = `page-${idx+1}`;
+        page.appendChild(img);
+        frag.appendChild(page);
+      });
+      book.appendChild(frag);
+
+      pageFlip = new St.PageFlip(book, {
+        width: 600,
+        height: 800,
+        size: 'stretch',
+        minWidth: 320,
+        maxWidth: 1600,
+        minHeight: 420,
+        maxHeight: 1100,
+        maxShadowOpacity: 0.28,
+        showCover: true,
+        mobileScrollSupport: true,
+      });
+      pageFlip.loadFromHTML(book.querySelectorAll('.page'));
+
+      pageCount = imageUrls.length;
+      currentPage = 1;
+
+      // doc identity
+      currentDocTitle = titleForKey || '未命名文件';
+      currentDocKey = `ebook:${hashString(currentDocTitle)}:${pageCount}`;
+      docInfo.textContent = `${pageCount} 頁`;
+
+      setStatus(`已載入 ${pageCount} 頁（可翻頁）`);
+      buildThumbs(imageUrls);
+      loadBookmarks();
+
+      // 讀 URL page
+      const url = new URL(location.href);
+      const p = parseInt(url.searchParams.get('page') || '1', 10);
+      if (!Number.isNaN(p)) jumpToPage(clamp(p,1,pageCount), false);
+      else updateCounter();
+
+      pageFlip.on('flip', (e) => {
+        currentPage = (e.data || 0) + 1;
+        updateCounter();
+      });
+
+      window.onkeydown = (ev) => {
+        if (!pageFlip) return;
+        if (ev.key === 'ArrowLeft') pageFlip.flipPrev();
+        if (ev.key === 'ArrowRight') pageFlip.flipNext();
+      };
+    }
+
+    function jumpToPage(p, focusThumb=true){
+      if (!pageFlip || !pageCount) return;
+      const targetIndex = p - 1;
+      pageFlip.flip(targetIndex);
+      currentPage = p;
+      updateCounter();
+      if (focusThumb){
+        const el = document.querySelector(`.thumb[data-page="${p}"]`);
+        el?.scrollIntoView?.({ block:'nearest', behavior:'smooth' });
+      }
+    }
+
+    // ========= Thumbnails =========
+    function buildThumbs(imageUrls){
+      thumbList.innerHTML = '';
+      imageUrls.forEach((url, i) => {
+        const p = i + 1;
+        const item = document.createElement('div');
+        item.className = 'thumb';
+        item.dataset.page = String(p);
+        item.innerHTML = `
+          <img src="${url}" alt="thumb-${p}" />
+          <div class="meta">
+            <div class="t">第 ${p} 頁</div>
+            <div class="s">點擊快速跳頁</div>
+          </div>
+        `;
+        item.addEventListener('click', () => jumpToPage(p));
+        thumbList.appendChild(item);
+      });
+
+      thumbEmpty.style.display = 'none';
+      thumbList.style.display = 'grid';
+      showTab('thumbs');
+
+      // 初始 active
+      requestAnimationFrame(() => {
+        const first = document.querySelector('.thumb[data-page="1"]');
+        first?.classList.add('active');
+      });
+    }
+
+    // ========= PDF: Outline (TOC) =========
+    async function buildTocFromPdf(pdfDoc){
+      try{
+        const outline = await pdfDoc.getOutline();
+        if (!outline || !outline.length){
+          tocEmpty.textContent = '此 PDF 沒有內建目錄（outline）';
+          tocEmpty.style.display = 'block';
+          tocList.style.display = 'none';
+          tocList.innerHTML = '';
+          return;
+        }
+
+        tocList.innerHTML = '';
+        const frag = document.createDocumentFragment();
+
+        async function addItems(items, level){
+          for (const it of items){
+            const title = (it.title || 'Untitled').trim();
+            const pageNum = await outlineItemToPage(pdfDoc, it);
+
+            const a = document.createElement('a');
+            a.href = 'javascript:void(0)';
+            a.innerHTML = `<div style="font-weight:900; font-size:13px;">${escapeHtml(title)}</div>
+                           <div class="lvl">層級 ${level}${pageNum ? ` · 第 ${pageNum} 頁` : ''}</div>`;
+            if (pageNum){
+              a.addEventListener('click', () => {
+                showTab('toc');
+                jumpToPage(pageNum);
+              });
+            } else {
+              a.style.opacity = '.65';
+            }
+            frag.appendChild(a);
+
+            if (it.items && it.items.length){
+              await addItems(it.items, level + 1);
+            }
+          }
+        }
+
+        await addItems(outline, 1);
+        tocList.appendChild(frag);
+        tocEmpty.style.display = 'none';
+        tocList.style.display = 'flex';
+      } catch (e){
+        tocEmpty.textContent = '目錄解析失敗（outline）';
+        tocEmpty.style.display = 'block';
+        tocList.style.display = 'none';
+      }
+    }
+
+    async function outlineItemToPage(pdfDoc, item){
+      try{
+        let dest = item.dest;
+        if (!dest) return null;
+        if (typeof dest === 'string') dest = await pdfDoc.getDestination(dest);
+        if (!dest || !dest[0]) return null;
+        const ref = dest[0];
+        const pageIndex = await pdfDoc.getPageIndex(ref);
+        return pageIndex + 1;
+      } catch {
+        return null;
+      }
+    }
+
+    // ========= Bookmarks =========
+    function loadBookmarks(){
+      if (!currentDocKey) return;
+      const raw = localStorage.getItem(currentDocKey);
+      const data = raw ? safeJsonParse(raw, []) : [];
+      renderBookmarks(Array.isArray(data) ? data : []);
+    }
+
+    function saveBookmarks(items){
+      if (!currentDocKey) return;
+      localStorage.setItem(currentDocKey, JSON.stringify(items));
+      renderBookmarks(items);
+    }
+
+    function renderBookmarks(items){
+      bmList.innerHTML = '';
+      if (!items.length){
+        bmEmpty.style.display = 'block';
+        bmList.style.display = 'none';
+        return;
+      }
+      bmEmpty.style.display = 'none';
+      bmList.style.display = 'flex';
+
+      items
+        .sort((a,b) => a.page - b.page)
+        .forEach((it, idx) => {
+          const a = document.createElement('a');
+          a.href = 'javascript:void(0)';
+          a.innerHTML = `
+            <div style="display:flex; align-items:center; justify-content:space-between; gap:10px;">
+              <div>
+                <div style="font-weight:900; font-size:13px;">${escapeHtml(it.label || `書籤 ${idx+1}`)}</div>
+                <div class="lvl">第 ${it.page} 頁</div>
+              </div>
+              <button class="btn danger" style="padding:8px 10px; border-radius:12px;" data-del="${idx}">刪除</button>
+            </div>
+          `;
+          a.addEventListener('click', (ev) => {
+            const btn = ev.target?.closest?.('[data-del]');
+            if (btn) return;
+            showTab('bm');
+            jumpToPage(it.page);
+          });
+          a.querySelector('[data-del]')?.addEventListener('click', (ev) => {
+            ev.preventDefault();
+            ev.stopPropagation();
+            const next = items.slice();
+            next.splice(idx, 1);
+            saveBookmarks(next);
+          });
+          bmList.appendChild(a);
+        });
+    }
+
+    addBmBtn.addEventListener('click', () => {
+      if (!pageCount) return setStatus('請先載入 PDF 或圖片，再新增書籤');
+      const label = prompt('書籤名稱（可留空）', `第 ${currentPage} 頁`);
+      const raw = localStorage.getItem(currentDocKey);
+      const items = raw ? safeJsonParse(raw, []) : [];
+      items.push({ page: currentPage, label: (label || '').trim() });
+      saveBookmarks(items);
+      showTab('bm');
+      setStatus('已新增書籤（存在本機瀏覽器）');
+    });
+
+    // ========= Jump =========
+    jumpBtn.addEventListener('click', () => {
+      const v = parseInt((jumpInput.value || '').trim(), 10);
+      if (!pageCount) return;
+      if (Number.isNaN(v)) return setStatus('請輸入有效頁碼');
+      jumpToPage(clamp(v,1,pageCount));
+      jumpInput.value = '';
+    });
+    jumpInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') jumpBtn.click();
+    });
+
+    // ========= Fullscreen =========
+    fullscreenBtn.addEventListener('click', async () => {
+      try{
+        if (!document.fullscreenElement) await fullscreenTarget.requestFullscreen();
+        else await document.exitFullscreen();
+        setTimeout(() => pageFlip?.update?.(), 120);
+      } catch {
+        setStatus('此瀏覽器不支援全螢幕或被權限阻擋');
+      }
+    });
+    document.addEventListener('fullscreenchange', () => {
+      fullscreenBtn.textContent = document.fullscreenElement ? '退出全螢幕' : '全螢幕';
+      setTimeout(() => pageFlip?.update?.(), 120);
+    });
+
+    // ========= Navigation =========
+    prevBtn.addEventListener('click', () => pageFlip?.flipPrev?.());
+    nextBtn.addEventListener('click', () => pageFlip?.flipNext?.());
+
+    // ========= File selection =========
+    pickBtn.addEventListener('click', () => fileInput.click());
+
+    fileInput.addEventListener('change', async (ev) => {
+      const files = Array.from(ev.target.files || []);
+      if (!files.length) return;
+
+      emptyState?.remove?.();
+      destroyFlip();
+
+      const pdfFile = files.find(f => f.type === 'application/pdf' || f.name.toLowerCase().endsWith('.pdf'));
+      const imageFiles = files.filter(f => f.type.startsWith('image/'));
+
+      try{
+        if (pdfFile){
+          setLoading(`讀取 PDF：${pdfFile.name}`);
+          currentDocTitle = pdfFile.name;
+
+          const { urls, pdfDoc } = await pdfToImagesWithDoc(pdfFile);
+          buildFlipFromImages(urls, pdfFile.name);
+          tocEmpty.textContent = '目錄載入中…';
+          await buildTocFromPdf(pdfDoc);
+        } else if (imageFiles.length){
+          setLoading(`讀取圖片…（${imageFiles.length} 張）`);
+          const urls = await imagesFromFiles(imageFiles);
+          buildFlipFromImages(urls, `圖片集（${imageFiles.length}）`);
+          tocEmpty.textContent = '圖片模式無 PDF 目錄';
+          tocEmpty.style.display = 'block';
+          tocList.style.display = 'none';
+        } else {
+          setStatus('未偵測到可用檔案（請上傳 PDF 或圖片）');
+        }
+      } catch (err){
+        console.error(err);
+        setStatus(`載入失敗：${err?.message || err}`);
+        const book = document.getElementById('book');
+        book.innerHTML = '<div class="empty"><strong>載入失敗</strong><div style="margin-top:10px;">請改用圖片上傳，或確認網路可讀取 PDF.js worker。</div></div>';
+      } finally {
+        fileInput.value = '';
+      }
+    });
+
+    // ========= Drag & Drop =========
+    const host = document.getElementById('bookHost');
+    ;['dragenter','dragover'].forEach(evt => host.addEventListener(evt, (e) => {
+      e.preventDefault(); e.stopPropagation();
+      host.style.outline = '3px solid rgba(124,58,237,.35)';
+      host.style.outlineOffset = '-6px';
+    }));
+    ;['dragleave','drop'].forEach(evt => host.addEventListener(evt, (e) => {
+      e.preventDefault(); e.stopPropagation();
+      host.style.outline = 'none';
+    }));
+    host.addEventListener('drop', async (e) => {
+      const dtFiles = Array.from(e.dataTransfer.files || []);
+      if (!dtFiles.length) return;
+
+      emptyState?.remove?.();
+      destroyFlip();
+
+      const pdfFile = dtFiles.find(f => f.type === 'application/pdf' || f.name.toLowerCase().endsWith('.pdf'));
+      const imageFiles = dtFiles.filter(f => f.type.startsWith('image/'));
+
+      try{
+        if (pdfFile){
+          setLoading(`讀取 PDF：${pdfFile.name}`);
+          const { urls, pdfDoc } = await pdfToImagesWithDoc(pdfFile);
+          buildFlipFromImages(urls, pdfFile.name);
+          tocEmpty.textContent = '目錄載入中…';
+          await buildTocFromPdf(pdfDoc);
+        } else if (imageFiles.length){
+          setLoading(`讀取圖片…（${imageFiles.length} 張）`);
+          const urls = await imagesFromFiles(imageFiles);
+          buildFlipFromImages(urls, `圖片集（${imageFiles.length}）`);
+          tocEmpty.textContent = '圖片模式無 PDF 目錄';
+          tocEmpty.style.display = 'block';
+          tocList.style.display = 'none';
+        } else {
+          setStatus('未偵測到可用檔案（請上傳 PDF 或圖片）');
+        }
+      } catch (err){
+        console.error(err);
+        setStatus(`載入失敗：${err?.message || err}`);
+      }
+    });
+
+    // ========= Reset =========
+    resetBtn.addEventListener('click', () => {
+      destroyFlip();
+      const book = document.getElementById('book');
+      book.innerHTML = `
+        <div class="empty" id="emptyState">
+          <div style="font-size:18px; margin-bottom:8px;"><strong>把檔案丟進來，就能像電子書一樣翻頁</strong></div>
+          <div style="margin-bottom:10px;">支援：單一 PDF（自動拆頁）或多張圖片（依選取順序）。</div>
+          <div style="font-size:12px;">Tips：左右鍵翻頁；上方可進全螢幕；側欄可縮圖/目錄/書籤/跳頁。</div>
+        </div>
+      `;
+      setStatus('尚未載入任何檔案');
+      clearSidebarLists();
+      docInfo.textContent = '—';
+    });
+
+    // ========= Images =========
+    async function imagesFromFiles(files){
+      const urls = [];
+      for (const f of files){
+        if (!f.type.startsWith('image/')) continue;
+        urls.push(URL.createObjectURL(f));
+      }
+      return urls;
+    }
+
+    // ========= PDF =========
+    async function pdfToImagesWithDoc(file){
+      if (!window.pdfjsLib) throw new Error('PDF.js 未載入');
+      const buf = await file.arrayBuffer();
+      const pdfDoc = await pdfjsLib.getDocument({ data: buf }).promise;
+      const urls = [];
+      const targetScale = 2.0;
+
+      for (let i=1; i<=pdfDoc.numPages; i++){
+        setLoading(`PDF 轉頁中…（第 ${i} / ${pdfDoc.numPages} 頁）`);
+        const page = await pdfDoc.getPage(i);
+        const viewport = page.getViewport({ scale: targetScale });
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d', { alpha:false });
+        canvas.width = Math.floor(viewport.width);
+        canvas.height = Math.floor(viewport.height);
+        await page.render({ canvasContext: ctx, viewport }).promise;
+        const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.92));
+        urls.push(URL.createObjectURL(blob));
+        canvas.width = canvas.height = 0;
+      }
+
+      return { urls, pdfDoc };
+    }
+
+    // ========= Utils =========
+    function clamp(n, a, b){ return Math.max(a, Math.min(b, n)); }
+
+    function safeJsonParse(str, fallback){
+      try { return JSON.parse(str); } catch { return fallback; }
+    }
+
+    function hashString(str){
+      // 非加密 hash：用於 key 穩定
+      let h = 2166136261;
+      for (let i=0; i<str.length; i++){
+        h ^= str.charCodeAt(i);
+        h = Math.imul(h, 16777619);
+      }
+      return (h >>> 0).toString(16);
+    }
+
+    function escapeHtml(s){
+      return String(s)
+        .replaceAll('&','&amp;')
+        .replaceAll('<','&lt;')
+        .replaceAll('>','&gt;')
+        .replaceAll('"','&quot;')
+        .replaceAll("'",'&#39;');
+    }
+
+    // ========= Boot =========
+    // 預設：手機上把側欄收起，避免第一眼被「控台感」嚇到。
+    if (matchMedia('(max-width: 980px)').matches) sidebar.style.display = 'none';
+
+    // 如果 URL 帶 page 但尚未載入文件，先留著；載入後會自動跳。
+    const initialUrl = new URL(location.href);
+    if (initialUrl.searchParams.get('page')){
+      setStatus('已偵測到分享頁碼（載入文件後會自動跳轉）');
+    }
+  </script>
+</body>
+</html>
